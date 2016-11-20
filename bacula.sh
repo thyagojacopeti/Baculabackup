@@ -5,47 +5,52 @@
 #Script criado para gerenciar backups
 #
 
+DB_USER="root"
+DB="bacula"
+DB_PASS="123456"
+
 function cadastrar(){
 	echo "Digite o ip: "
 	read IP
-	grep "\<$IP\>" banco.txt
-	if [ $? -eq 0 ]; then
-		echo "Servidor já cadastrado"
-		exit
-	fi
-
 	echo "Digite os diretorios: "
 	read DIRETORIOS
-	echo "$IP:$DIRETORIOS" >> banco.txt
+	mysql -u$DB_USER -p$DB_PASS $DB -e "insert into servidores(endereco,diretorios) values('$IP','$DIRETORIOS')"
 }
 
 function backup(){
-	for LINHA in $(cat /root/codigos/banco.txt); do
-		IP=$( echo $LINHA | cut -f1 -d":")
-		DIRETORIOS=$( echo $LINHA | cut -f2 -d":")
+
+	DADOS=$(mysql -u$DB_USER -p$DB_PASS $DB -r -se "select * from servidores")
+	echo "$DADOS" > /tmp/select.tmp
+	sed -i "s/\t/:/g" /tmp/select.tmp
+	for LINHA in $(cat /tmp/select.tmp); do
+		IP=$( echo $LINHA | cut -f2 -d":")
+		echo "Fazendo backup do IP: "$IP
+		DIRETORIOS=$( echo $LINHA | cut -f3 -d":")
 		echo "Fazendo backup de: "$IP
 		echo "Dos Diretorios: "$DIRETORIOS
 	  	DATA=$(date +"%d_%m_%Y_%H_%M")
-		ssh root@$IP "tar -zcf /tmp/${IP}_${DATA}.tar.gz $DIRETORIOS"
+		ARQUIVO=$(echo "${IP}_${DATA}.tar.gz")
+		INICIO=$(date +"%Y-%m-%d %H:%M:%S")
+		ssh root@$IP "tar -zcf /tmp/$ARQUIVO $DIRETORIOS"
 		scp root@$IP:/tmp/*.tar.gz /backup/
 		ssh root@$IP "rm -f /tmp/*.tar.gz"
-		sleep 5
+		FIM=$(date +"%Y-%m-%d %H:%M:%S")
+		mysql -uroot -p123456 backup -e "insert into log(inicio,fim,server,arquivo,status) values('$INICIO','$FIM','$IP','$ARQUIVO','OK')"
 		done
 }
 
 function listar(){
-	cat banco.txt
+	mysql -u$DB_USER -p$DB_PASS $DB -e "select * from servidores"
 }
 
 function remover(){
 	echo "Digite o ip do servidor: "
 	read IP
-	sed "/\<$IP\>/d" banco.txt
 	echo "Deseja mesmo remover? (y/n)"
 	read OP
 	OP=$(echo $OP | tr [:upper:] [:lower:])
 	if [ $OP == "y" ]; then
-		sed -i "/\<$IP\>/d" banco.txt
+		mysql -u$DB_USER -p$DB_PASS $DB -e "delete from servidores where endereco='$IP'"
 	fi
 } 
 
